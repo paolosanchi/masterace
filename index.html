@@ -172,7 +172,10 @@
         .sortable-item { background: linear-gradient(90deg, #222, #2a2a2a); border: 1px solid #333; padding: 10px 15px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; cursor: grab; border-radius: 4px; }
         .sortable-item.dragging { opacity: 0.8; background: var(--neon-blue); color: #000; }
         .pos-badge { background: #000; color: #fff; border: 1px solid #444; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; font-family: 'Russo One'; margin-right: 15px; font-size: 1.2rem; transform: skew(-10deg); flex-shrink: 0; }
-        .pilot-name { flex-grow: 1; font-weight: 700; font-size: 1.4rem; text-transform: uppercase; letter-spacing: 1px; padding-left: 10px; word-break: break-word; }
+        .pilot-info { flex-grow: 1; padding-left: 10px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+        .pilot-name { font-weight: 700; font-size: 1.4rem; text-transform: uppercase; letter-spacing: 1px; word-break: break-word; line-height: 1.1; }
+        .pilot-meta { font-size: 0.75rem; color: #7f7f7f; letter-spacing: 0.5px; margin-top: 2px; font-family: 'Rajdhani', sans-serif; font-weight: 700; }
+        .lane-meta { font-size: 0.72rem; color: var(--neon-yellow); letter-spacing: 1px; margin-top: 2px; font-family: 'Rajdhani', sans-serif; font-weight: 700; text-transform: uppercase; }
         .controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
         
         .dnf-label { font-size: 0.8rem; color: #555; display: flex; align-items: center; cursor: pointer; transition: 0.3s; margin-left: 2px; width: 40px; justify-content: center; }
@@ -325,6 +328,8 @@
             .sortable-item { padding: 8px 10px; }
             .pos-badge { width: 30px; height: 30px; font-size: 1rem; margin-right: 10px; }
             .pilot-name { font-size: 1.1rem; }
+            .pilot-meta { font-size: 0.68rem; }
+            .lane-meta { font-size: 0.65rem; }
             .controls { gap: 5px; }
             .heat-cols-label { padding-right: 48px; }
             input[type="text"], input[type="number"], select { font-size: 16px; }
@@ -910,6 +915,27 @@
         } catch(e) { console.error(e); }
     }
 
+    function formatMilliseconds(ms) {
+        let value = Number(ms);
+        if(!Number.isFinite(value) || value <= 0) return '--';
+        value = Math.round(value);
+        let minutes = Math.floor(value / 60000);
+        let seconds = Math.floor((value % 60000) / 1000);
+        let millis = (value % 1000).toString().padStart(3, '0');
+        if(minutes > 0) return `${minutes}:${seconds.toString().padStart(2, '0')}.${millis}`;
+        return `${seconds}.${millis}`;
+    }
+
+    function updatePilotMeta(li, bestLapMs, totalMs) {
+        let metaEl = li.querySelector('.pilot-meta');
+        if(!metaEl) return;
+        metaEl.textContent = `BL ${formatMilliseconds(bestLapMs)} · TOT ${formatMilliseconds(totalMs)}`;
+    }
+
+    function laneLabelForPosition(posIndex) {
+        return `Lane ${((posIndex % 3) + 1)}`;
+    }
+
     /* CLOUD SYNC */
     async function fetchLastSessionData() {
         if(!dbConfig.url || !dbConfig.key) { alert("Configura prima il database!"); return null; }
@@ -949,15 +975,16 @@
         const results = session.timing.resultsByCar;
         let parsedData = [];
         let minTime = 99999999;
-        let fastestPilotName = "";
+        let fastestPilotName = (session.timing.bestLap && session.timing.bestLap.driver && session.timing.bestLap.driver.name) ? session.timing.bestLap.driver.name : "";
 
         for (const carId in results) {
             const entry = results[carId];
             const name = entry.driver.name;
             const bestLap = entry.bestLapTime || 99999999;
+            const totalTime = entry.totalTime || 0;
             const rank = entry.raceRanking ? entry.raceRanking.position : 99;
-            if(bestLap < minTime) { minTime = bestLap; fastestPilotName = name; }
-            parsedData.push({ name: name, time: bestLap, rank: rank });
+            if(!fastestPilotName && bestLap < minTime) { minTime = bestLap; fastestPilotName = name; }
+            parsedData.push({ name: name, time: bestLap, rank: rank, bestLapMs: bestLap, totalMs: totalTime });
         }
         parsedData.sort((a,b) => a.rank - b.rank);
 
@@ -1001,6 +1028,7 @@
             if(dataMap[pName]) {
                 let rank = dataMap[pName].rank;
                 li.setAttribute('data-rank', rank);
+                updatePilotMeta(li, dataMap[pName].bestLapMs, dataMap[pName].totalMs);
                 matchedItems.push(li);
                 let radio = li.querySelector('input[type="radio"]');
                 // Only select if Best Lap is enabled
@@ -1054,7 +1082,7 @@
                          let dnfClass = config.useDnf ? "" : "dnf-hidden";
                          let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                          let currentCount = targetList.children.length + 1;
-                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><span class="pilot-name">${name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabelForPosition(currentCount - 1)}</span><span class="pilot-meta">BL -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
                          li.addEventListener('dragstart', () => li.classList.add('dragging'));
                          li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); });
                          targetList.appendChild(li);
@@ -1208,7 +1236,7 @@
                     let dnfClass = config.useDnf ? "" : "dnf-hidden";
                     let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                     let displayPos = isRestore ? (idx+1) : "-";
-                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><span class="pilot-name">${p.name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${p.name}</span><span class="lane-meta">${laneLabelForPosition(idx)}</span><span class="pilot-meta">BL -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
                     li.addEventListener('dragstart', () => li.classList.add('dragging'));
                     li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); });
                     list.appendChild(li);
