@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -275,6 +276,31 @@
         
         select { background: #0b0b0b; border: 1px solid #444; color: var(--neon-blue); padding: 10px; width: 100%; font-family: 'Rajdhani'; font-weight: bold; transform: skew(-10deg); border-radius: 4px; }
 
+        .tournament-manager {
+            background: rgba(0,0,0,0.35);
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 0 0 20px 0;
+        }
+        .tournament-label {
+            display: block;
+            margin-bottom: 8px;
+            color: #888;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+        .tournament-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        #tournament-select {
+            flex: 1;
+        }
+
         /* -------------------------------------
            MEDIA QUERIES FOR MOBILE (RESPONSIVE)
            ------------------------------------- */
@@ -292,6 +318,8 @@
 
             .input-group { flex-direction: column; }
             .btn-add { width: 100%; margin-top: 10px; }
+            .tournament-controls { flex-wrap: wrap; }
+            #tournament-select { width: 100%; }
             td, th { padding: 10px 5px; font-size: 1.1rem; }
             .qualy-input { width: 100px; }
             .sortable-item { padding: 8px 10px; }
@@ -335,6 +363,16 @@
             </g>
           </g>
         </svg>
+    </div>
+
+    <div class="tournament-manager">
+        <span class="tournament-label">TORNEI SALVATI IN LOCALE</span>
+        <div class="tournament-controls">
+            <select id="tournament-select" onchange="switchTournament(this.value)"></select>
+            <button class="btn-mini-sync" onclick="createTournament()" style="margin-left:0;">+ NUOVO</button>
+            <button class="btn-mini-csv" onclick="renameTournament()" style="margin-left:0;">RINOMINA</button>
+            <button class="btn-mini-csv" onclick="deleteTournament()" style="margin-left:0;">ELIMINA</button>
+        </div>
     </div>
     
     <input type="file" id="csvInput" style="display:none" accept=".csv" onchange="handleCsvUpload(event)">
@@ -530,11 +568,16 @@
         scoringSystem: 'std', customPoints: '', 
         bestLapEnabled: true, bestLapPoints: 1 
     };
+    const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
+    const ACTIVE_TOURNAMENT_KEY = 'rc_active_tournament';
+    const DEFAULT_TOURNAMENT_ID = 'default';
     let pilots = [];
     let config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
     let podiumStep = 3; let podiumList = []; 
     let syncContext = 'setup'; 
     let csvContext = 'setup';
+    let tournaments = [];
+    let activeTournamentId = DEFAULT_TOURNAMENT_ID;
 
     // GLOBAL PASTE
     document.addEventListener('paste', (event) => {
@@ -556,21 +599,160 @@
             dbConfig = JSON.parse(localStorage.getItem('rc_creds'));
         }
 
-        try {
-            if(localStorage.getItem('rc_pilots')) {
-                let savedPilots = JSON.parse(localStorage.getItem('rc_pilots'));
-                let savedConfig = JSON.parse(localStorage.getItem('rc_config'));
-                if(Array.isArray(savedPilots) && savedConfig) {
-                    pilots = savedPilots;
-                    config = savedConfig;
-                    restoreState();
-                }
-            }
-        } catch(e) { emergencyReset(); }
+        initTournamentManager();
         renderPilotList();
         updateSuggestedGroups();
         if(config.state === 'racing' || config.state === 'finished') updateRank();
     };
+
+    function getTournamentKeys(tournamentId) {
+        return {
+            pilotsKey: `rc_pilots_${tournamentId}`,
+            configKey: `rc_config_${tournamentId}`
+        };
+    }
+
+    function loadTournamentIndex() {
+        try {
+            let raw = localStorage.getItem(TOURNAMENT_INDEX_KEY);
+            if(!raw) return [];
+            let parsed = JSON.parse(raw);
+            if(!Array.isArray(parsed)) return [];
+            return parsed.filter(t => t && t.id && t.name);
+        } catch(e) { return []; }
+    }
+
+    function saveTournamentIndex() {
+        localStorage.setItem(TOURNAMENT_INDEX_KEY, JSON.stringify(tournaments));
+    }
+
+    function ensureLegacyMigration() {
+        try {
+            const legacyPilotsRaw = localStorage.getItem('rc_pilots');
+            const legacyConfigRaw = localStorage.getItem('rc_config');
+            if(!legacyPilotsRaw && !legacyConfigRaw) return;
+
+            const keys = getTournamentKeys(DEFAULT_TOURNAMENT_ID);
+            if(!localStorage.getItem(keys.pilotsKey) && legacyPilotsRaw) {
+                localStorage.setItem(keys.pilotsKey, legacyPilotsRaw);
+            }
+            if(!localStorage.getItem(keys.configKey) && legacyConfigRaw) {
+                localStorage.setItem(keys.configKey, legacyConfigRaw);
+            }
+            localStorage.removeItem('rc_pilots');
+            localStorage.removeItem('rc_config');
+        } catch(e) { console.error(e); }
+    }
+
+    function populateTournamentSelect() {
+        const sel = document.getElementById('tournament-select');
+        sel.innerHTML = '';
+        tournaments.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.name;
+            sel.appendChild(opt);
+        });
+        sel.value = activeTournamentId;
+    }
+
+    function loadActiveTournamentData() {
+        pilots = [];
+        config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+
+        try {
+            const keys = getTournamentKeys(activeTournamentId);
+            const savedPilotsRaw = localStorage.getItem(keys.pilotsKey);
+            const savedConfigRaw = localStorage.getItem(keys.configKey);
+            if(savedPilotsRaw && savedConfigRaw) {
+                const savedPilots = JSON.parse(savedPilotsRaw);
+                const savedConfig = JSON.parse(savedConfigRaw);
+                if(Array.isArray(savedPilots) && savedConfig) {
+                    pilots = savedPilots;
+                    config = savedConfig;
+                }
+            }
+        } catch(e) {
+            pilots = [];
+            config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        }
+
+        restoreState();
+        renderPilotList();
+        updateSuggestedGroups();
+        if(config.state === 'racing' || config.state === 'finished') updateRank();
+    }
+
+    function initTournamentManager() {
+        ensureLegacyMigration();
+        tournaments = loadTournamentIndex();
+
+        if(tournaments.length === 0) {
+            tournaments = [{ id: DEFAULT_TOURNAMENT_ID, name: 'Torneo 1' }];
+            saveTournamentIndex();
+        }
+
+        const savedActive = localStorage.getItem(ACTIVE_TOURNAMENT_KEY);
+        if(savedActive && tournaments.some(t => t.id === savedActive)) {
+            activeTournamentId = savedActive;
+        } else {
+            activeTournamentId = tournaments[0].id;
+            localStorage.setItem(ACTIVE_TOURNAMENT_KEY, activeTournamentId);
+        }
+
+        populateTournamentSelect();
+        loadActiveTournamentData();
+    }
+
+    function switchTournament(tournamentId) {
+        if(!tournaments.some(t => t.id === tournamentId)) return;
+        activeTournamentId = tournamentId;
+        localStorage.setItem(ACTIVE_TOURNAMENT_KEY, activeTournamentId);
+        populateTournamentSelect();
+        loadActiveTournamentData();
+    }
+
+    function createTournament() {
+        let name = prompt("Nome del nuovo torneo:");
+        if(!name) return;
+        name = name.trim();
+        if(!name) return;
+
+        const id = 't_' + Date.now();
+        tournaments.push({ id, name });
+        saveTournamentIndex();
+        localStorage.setItem(getTournamentKeys(id).pilotsKey, JSON.stringify([]));
+        localStorage.setItem(getTournamentKeys(id).configKey, JSON.stringify(JSON.parse(JSON.stringify(DEFAULT_CONFIG))));
+        switchTournament(id);
+    }
+
+    function renameTournament() {
+        const current = tournaments.find(t => t.id === activeTournamentId);
+        if(!current) return;
+
+        let newName = prompt("Nuovo nome torneo:", current.name);
+        if(newName === null) return;
+        newName = newName.trim();
+        if(!newName) return;
+
+        current.name = newName;
+        saveTournamentIndex();
+        populateTournamentSelect();
+    }
+
+    function deleteTournament() {
+        if(tournaments.length <= 1) return alert("Devi mantenere almeno un torneo.");
+        const current = tournaments.find(t => t.id === activeTournamentId);
+        if(!current) return;
+        if(!confirm(`Eliminare il torneo \"${current.name}\"?`)) return;
+
+        const keys = getTournamentKeys(current.id);
+        localStorage.removeItem(keys.pilotsKey);
+        localStorage.removeItem(keys.configKey);
+        tournaments = tournaments.filter(t => t.id !== current.id);
+        saveTournamentIndex();
+        switchTournament(tournaments[0].id);
+    }
 
     /* SETTINGS MODAL */
     function openSettings() {
@@ -615,8 +797,9 @@
 
     function emergencyReset() {
         if(confirm("SYSTEM OVERRIDE: Cancellare gara e piloti? (Le impostazioni rimarranno salvate)")) {
-            localStorage.removeItem('rc_pilots');
-            localStorage.removeItem('rc_config');
+            const keys = getTournamentKeys(activeTournamentId);
+            localStorage.removeItem(keys.pilotsKey);
+            localStorage.removeItem(keys.configKey);
             location.reload();
         }
     }
@@ -677,8 +860,9 @@
 
     function saveToMemory() {
         try {
-            localStorage.setItem('rc_pilots', JSON.stringify(pilots));
-            localStorage.setItem('rc_config', JSON.stringify(config));
+            const keys = getTournamentKeys(activeTournamentId);
+            localStorage.setItem(keys.pilotsKey, JSON.stringify(pilots));
+            localStorage.setItem(keys.configKey, JSON.stringify(config));
             let el = document.getElementById('save-status'); el.style.opacity = 1; setTimeout(() => el.style.opacity = 0, 1000);
         } catch(e) { console.error(e); }
     }
