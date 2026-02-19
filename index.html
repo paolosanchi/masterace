@@ -394,13 +394,28 @@
         <hr style="border-color: #222; margin: 30px 0;">
         
         <h3>2. CONFIGURAZIONE GARA</h3>
+        <div style="max-width: 500px; margin: 0 auto 15px auto;">
+            <label style="display:block; margin-bottom:5px; color: var(--neon-blue);">LOGICA BATTERIE</label>
+            <select id="pGroupMode" onchange="updateGroupingModeUI()">
+                <option value="groups">PER NUMERO DI GRUPPI</option>
+                <option value="size">PER PILOTI PER GRUPPO</option>
+            </select>
+        </div>
         <div style="display:flex; justify-content:center; gap:30px; flex-wrap:wrap; margin-bottom: 20px;">
-            <div>
-                <span class="control-label">GRUPPI (SUGGERITO)</span>
+            <div id="group-count-control">
+                <span class="control-label">GRUPPI</span>
                 <div class="number-control">
                     <button class="btn-num" onclick="adjustValue('pGroups', -1)">-</button>
                     <input type="number" id="pGroups" value="2" readonly>
                     <button class="btn-num" onclick="adjustValue('pGroups', 1)">+</button>
+                </div>
+            </div>
+            <div id="group-size-control" class="hidden">
+                <span class="control-label">PILOTI / GRUPPO</span>
+                <div class="number-control">
+                    <button class="btn-num" onclick="adjustValue('pGroupSize', -1)">-</button>
+                    <input type="number" id="pGroupSize" value="5" readonly>
+                    <button class="btn-num" onclick="adjustValue('pGroupSize', 1)">+</button>
                 </div>
             </div>
             <div>
@@ -566,7 +581,8 @@
     const DEFAULT_CONFIG = { 
         round: 1, total: 3, groups: 2, state: 'setup', suspense: true, startMode: 'random', useDnf: false, 
         scoringSystem: 'std', customPoints: '', 
-        bestLapEnabled: true, bestLapPoints: 1 
+        bestLapEnabled: true, bestLapPoints: 1,
+        groupMode: 'groups', groupSize: 5
     };
     const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
     const ACTIVE_TOURNAMENT_KEY = 'rc_active_tournament';
@@ -669,7 +685,7 @@
                 const savedConfig = JSON.parse(savedConfigRaw);
                 if(Array.isArray(savedPilots) && savedConfig) {
                     pilots = savedPilots;
-                    config = savedConfig;
+                    config = Object.assign({}, DEFAULT_CONFIG, savedConfig);
                 }
             }
         } catch(e) {
@@ -804,7 +820,14 @@
         }
     }
 
-    function adjustValue(id, delta) { const el = document.getElementById(id); let val = parseInt(el.value) || 0; val += delta; if(val < 1) val = 1; el.value = val; }
+    function adjustValue(id, delta) {
+        const el = document.getElementById(id);
+        let val = parseInt(el.value) || 0;
+        val += delta;
+        if(val < 1) val = 1;
+        el.value = val;
+        if(id === 'pGroupSize') updateSuggestedGroups();
+    }
     
     function adjustBestLap(delta) {
         const el = document.getElementById('pBestLapPoints');
@@ -824,15 +847,25 @@
         document.getElementById('best-lap-pts-div').style.display = isEnabled ? 'flex' : 'none';
     }
 
+    function updateGroupingModeUI() {
+        let mode = document.getElementById('pGroupMode').value;
+        document.getElementById('group-count-control').classList.toggle('hidden', mode !== 'groups');
+        document.getElementById('group-size-control').classList.toggle('hidden', mode !== 'size');
+        updateSuggestedGroups();
+    }
+
     function restoreState() {
         ['view-setup', 'view-qualy', 'view-race', 'view-end', 'view-rank'].forEach(id => document.getElementById(id).classList.add('hidden'));
 
         if(!config.state || config.state === 'setup') {
             document.getElementById('view-setup').classList.remove('hidden');
             document.getElementById('pGroups').value = config.groups || 2;
+            document.getElementById('pGroupMode').value = config.groupMode || 'groups';
+            document.getElementById('pGroupSize').value = config.groupSize || 5;
             document.getElementById('pRounds').value = config.total || 3;
             document.getElementById('pSuspense').checked = config.suspense;
             document.getElementById('pUseDnf').checked = config.useDnf;
+            updateGroupingModeUI();
             
             document.getElementById('pScoring').value = config.scoringSystem || 'std';
             if(config.customPoints) document.getElementById('pCustomPoints').value = config.customPoints;
@@ -1039,14 +1072,30 @@
     function updateSuggestedGroups() {
         let count = pilots.length;
         if (count === 0) return;
-        let g = Math.ceil(count / 5);
-        if (g < 1) g = 1;
-        document.getElementById('pGroups').value = g;
+        let modeEl = document.getElementById('pGroupMode');
+        let mode = modeEl ? modeEl.value : 'groups';
+        if(mode === 'size') {
+            let size = parseInt(document.getElementById('pGroupSize').value) || 1;
+            if(size < 1) size = 1;
+            document.getElementById('pGroups').value = Math.max(1, Math.ceil(count / size));
+        } else {
+            let g = Math.ceil(count / 5);
+            if (g < 1) g = 1;
+            document.getElementById('pGroups').value = g;
+        }
     }
 
     function startChampionship() {
         if(pilots.length < 2) return alert("Minimo 2 piloti!");
-        config.groups = parseInt(document.getElementById('pGroups').value);
+        config.groupMode = document.getElementById('pGroupMode').value;
+        config.groupSize = parseInt(document.getElementById('pGroupSize').value) || 5;
+        if(config.groupMode === 'size') {
+            if(config.groupSize < 1) config.groupSize = 1;
+            config.groups = Math.max(1, Math.ceil(pilots.length / config.groupSize));
+            document.getElementById('pGroups').value = config.groups;
+        } else {
+            config.groups = parseInt(document.getElementById('pGroups').value);
+        }
         config.total = parseInt(document.getElementById('pRounds').value);
         config.suspense = document.getElementById('pSuspense').checked;
         config.useDnf = document.getElementById('pUseDnf').checked;
@@ -1105,6 +1154,12 @@
         document.getElementById('lbl-round').innerText = `ROUND ${config.round} / ${config.total}`;
         let totalPilots = pilots.length;
         let numGroups = config.groups;
+        if(config.groupMode === 'size') {
+            let size = parseInt(config.groupSize) || 1;
+            if(size < 1) size = 1;
+            numGroups = Math.max(1, Math.ceil(totalPilots / size));
+            config.groups = numGroups;
+        }
         let baseSize = Math.floor(totalPilots / numGroups);
         let remainder = totalPilots % numGroups;
         let currentPilotIndex = 0;
