@@ -426,6 +426,14 @@
                     <button class="btn-num" onclick="adjustValue('pRounds', 1)">+</button>
                 </div>
             </div>
+            <div>
+                <span class="control-label">HEAT / ROUND</span>
+                <div class="number-control">
+                    <button class="btn-num" onclick="adjustValue('pHeatsPerRound', -1)">-</button>
+                    <input type="number" id="pHeatsPerRound" value="3" readonly>
+                    <button class="btn-num" onclick="adjustValue('pHeatsPerRound', 1)">+</button>
+                </div>
+            </div>
         </div>
         
         <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 4px; max-width: 500px; margin: auto;">
@@ -582,7 +590,8 @@
         round: 1, total: 3, groups: 2, state: 'setup', suspense: true, startMode: 'random', useDnf: false, 
         scoringSystem: 'std', customPoints: '', 
         bestLapEnabled: true, bestLapPoints: 1,
-        groupMode: 'groups', groupSize: 5
+        groupMode: 'groups', groupSize: 5,
+        heatsPerRound: 3
     };
     const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
     const ACTIVE_TOURNAMENT_KEY = 'rc_active_tournament';
@@ -863,6 +872,7 @@
             document.getElementById('pGroupMode').value = config.groupMode || 'groups';
             document.getElementById('pGroupSize').value = config.groupSize || 5;
             document.getElementById('pRounds').value = config.total || 3;
+            document.getElementById('pHeatsPerRound').value = config.heatsPerRound || 3;
             document.getElementById('pSuspense').checked = config.suspense;
             document.getElementById('pUseDnf').checked = config.useDnf;
             updateGroupingModeUI();
@@ -1031,20 +1041,25 @@
              } else if(config.state === 'racing') {
                  let lists = document.querySelectorAll('.sortable-list');
                  if(lists.length > 0) {
-                     let lastList = lists[lists.length - 1];
-                     let heatIndex = lists.length - 1;
-                     let li = document.createElement('li'); 
-                     li.className = 'sortable-item'; 
-                     li.setAttribute('draggable', 'true'); 
-                     li.setAttribute('data-name', name);
-                     let dnfClass = config.useDnf ? "" : "dnf-hidden";
-                     let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
-                     let currentCount = lastList.children.length + 1;
-                     li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><span class="pilot-name">${name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
-                     li.addEventListener('dragstart', () => li.classList.add('dragging'));
-                     li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(lastList); });
-                     lastList.appendChild(li);
-                     alert("Pilota aggiunto all'ultima batteria!");
+                     let heatsPerRound = parseInt(config.heatsPerRound) || 1;
+                     if(heatsPerRound < 1) heatsPerRound = 1;
+                     let targetLists = Array.from(lists).slice(-heatsPerRound);
+                     targetLists.forEach(targetList => {
+                         let heatIndex = parseInt(targetList.getAttribute('data-heat-index'));
+                         if(isNaN(heatIndex)) heatIndex = lists.length - 1;
+                         let li = document.createElement('li'); 
+                         li.className = 'sortable-item'; 
+                         li.setAttribute('draggable', 'true'); 
+                         li.setAttribute('data-name', name);
+                         let dnfClass = config.useDnf ? "" : "dnf-hidden";
+                         let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
+                         let currentCount = targetList.children.length + 1;
+                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><span class="pilot-name">${name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                         li.addEventListener('dragstart', () => li.classList.add('dragging'));
+                         li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); });
+                         targetList.appendChild(li);
+                     });
+                     alert("Pilota aggiunto alle heat del gruppo corrente!");
                  }
                  updateRank();
              }
@@ -1089,6 +1104,8 @@
         if(pilots.length < 2) return alert("Minimo 2 piloti!");
         config.groupMode = document.getElementById('pGroupMode').value;
         config.groupSize = parseInt(document.getElementById('pGroupSize').value) || 5;
+        config.heatsPerRound = parseInt(document.getElementById('pHeatsPerRound').value) || 3;
+        if(config.heatsPerRound < 1) config.heatsPerRound = 1;
         if(config.groupMode === 'size') {
             if(config.groupSize < 1) config.groupSize = 1;
             config.groups = Math.max(1, Math.ceil(pilots.length / config.groupSize));
@@ -1154,6 +1171,9 @@
         document.getElementById('lbl-round').innerText = `ROUND ${config.round} / ${config.total}`;
         let totalPilots = pilots.length;
         let numGroups = config.groups;
+        let heatsPerRound = parseInt(config.heatsPerRound) || 1;
+        if(heatsPerRound < 1) heatsPerRound = 1;
+        config.heatsPerRound = heatsPerRound;
         if(config.groupMode === 'size') {
             let size = parseInt(config.groupSize) || 1;
             if(size < 1) size = 1;
@@ -1163,6 +1183,7 @@
         let baseSize = Math.floor(totalPilots / numGroups);
         let remainder = totalPilots % numGroups;
         let currentPilotIndex = 0;
+        let listGlobalIndex = 0;
 
         for(let i=0; i<numGroups; i++) {
             let groupSize = baseSize + (i < remainder ? 1 : 0);
@@ -1170,25 +1191,32 @@
             let chunk = pilots.slice(currentPilotIndex, currentPilotIndex + groupSize);
             currentPilotIndex += groupSize;
 
-            let heatDiv = document.createElement('div'); heatDiv.className = 'heat-container';
-            let dnfHeaderStyle = config.useDnf ? "" : "display:none;";
-            let blHeaderStyle = config.bestLapEnabled ? "" : "display:none;";
-            let head = `<div class="heat-header"><strong style="color:var(--neon-blue); font-family:'Russo One'; font-size:1.3rem; letter-spacing:1px;">BATTERIA ${i+1}</strong><div class="controls"><button id="btn-sync-${i}" class="btn-mini-sync" onclick="syncWithCloud('${i}')">🔄 SINCRONIZZA</button><button class="btn-mini-csv" onclick="triggerCsvImport('${i}')" title="Carica CSV Backup">📄</button></div></div><div class="heat-cols-label"><span class="col-best" style="${blHeaderStyle}">BEST LAP</span><span class="col-dnf" style="${dnfHeaderStyle}">DNF</span></div>`;
-            heatDiv.innerHTML = head;
-            let list = document.createElement('ul'); list.className = 'sortable-list';
-            
-            chunk.forEach((p, idx) => {
-                let li = document.createElement('li'); li.className = 'sortable-item'; li.setAttribute('draggable', 'true'); li.setAttribute('data-name', p.name);
-                let dnfClass = config.useDnf ? "" : "dnf-hidden";
-                let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
-                let displayPos = isRestore ? (idx+1) : "-";
-                li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><span class="pilot-name">${p.name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${i}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
-                li.addEventListener('dragstart', () => li.classList.add('dragging'));
-                li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); });
-                list.appendChild(li);
-            });
-            list.addEventListener('dragover', e => { e.preventDefault(); const afterElement = getDragAfterElement(list, e.clientY); const dragging = document.querySelector('.dragging'); if (afterElement == null) list.appendChild(dragging); else list.insertBefore(dragging, afterElement); });
-            heatDiv.appendChild(list); container.appendChild(heatDiv);
+            for(let h=0; h<heatsPerRound; h++) {
+                let rotatedChunk = chunk.map((_, idx) => chunk[(idx + h) % chunk.length]);
+                let heatDiv = document.createElement('div'); heatDiv.className = 'heat-container';
+                let dnfHeaderStyle = config.useDnf ? "" : "display:none;";
+                let blHeaderStyle = config.bestLapEnabled ? "" : "display:none;";
+                let heatLabel = heatsPerRound > 1 ? ` · HEAT ${h+1}/${heatsPerRound}` : "";
+                let head = `<div class="heat-header"><strong style="color:var(--neon-blue); font-family:'Russo One'; font-size:1.3rem; letter-spacing:1px;">BATTERIA ${i+1}${heatLabel}</strong><div class="controls"><button id="btn-sync-${listGlobalIndex}" class="btn-mini-sync" onclick="syncWithCloud('${listGlobalIndex}')">🔄 SINCRONIZZA</button><button class="btn-mini-csv" onclick="triggerCsvImport('${listGlobalIndex}')" title="Carica CSV Backup">📄</button></div></div><div class="heat-cols-label"><span class="col-best" style="${blHeaderStyle}">BEST LAP</span><span class="col-dnf" style="${dnfHeaderStyle}">DNF</span></div>`;
+                heatDiv.innerHTML = head;
+                let list = document.createElement('ul');
+                list.className = 'sortable-list';
+                list.setAttribute('data-heat-index', String(listGlobalIndex));
+                
+                rotatedChunk.forEach((p, idx) => {
+                    let li = document.createElement('li'); li.className = 'sortable-item'; li.setAttribute('draggable', 'true'); li.setAttribute('data-name', p.name);
+                    let dnfClass = config.useDnf ? "" : "dnf-hidden";
+                    let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
+                    let displayPos = isRestore ? (idx+1) : "-";
+                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><span class="pilot-name">${p.name}</span><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                    li.addEventListener('dragstart', () => li.classList.add('dragging'));
+                    li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); });
+                    list.appendChild(li);
+                });
+                list.addEventListener('dragover', e => { e.preventDefault(); const afterElement = getDragAfterElement(list, e.clientY); const dragging = document.querySelector('.dragging'); if (afterElement == null) list.appendChild(dragging); else list.insertBefore(dragging, afterElement); });
+                heatDiv.appendChild(list); container.appendChild(heatDiv);
+                listGlobalIndex++;
+            }
         }
         document.getElementById('view-race').classList.remove('hidden');
     }
@@ -1211,6 +1239,10 @@
 
     function saveHeats() {
         let groups = document.querySelectorAll('.sortable-list');
+        let roundSummary = {};
+        pilots.forEach(p => {
+            roundSummary[p.name] = { points: 0, posSum: 0, heatCount: 0, dnfCount: 0, bestLap: false };
+        });
         
         // Validation check for Best Lap selection (ONLY if enabled)
         if(config.bestLapEnabled) {
@@ -1255,11 +1287,34 @@
                 if(isFast) pointsEarned += (config.bestLapPoints || 1);
                 
                 p.points += pointsEarned;
-                
-                if(!p.history) p.history = [];
-                p.history.push({ round: config.round, pos: index + 1, points: pointsEarned, dnf: isDnf, bestLap: isFast });
+
+                if(roundSummary[name]) {
+                    roundSummary[name].points += pointsEarned;
+                    roundSummary[name].posSum += (index + 1);
+                    roundSummary[name].heatCount += 1;
+                    if(isDnf) roundSummary[name].dnfCount += 1;
+                    if(isFast) roundSummary[name].bestLap = true;
+                }
             });
         });
+
+        pilots.forEach(p => {
+            if(!p.history) p.history = [];
+            let s = roundSummary[p.name];
+            if(!s || s.heatCount === 0) return;
+            let avgPos = parseFloat((s.posSum / s.heatCount).toFixed(2));
+            let existing = p.history.find(h => h.round === config.round);
+            let entry = { round: config.round, pos: avgPos, points: s.points, dnf: s.dnfCount > 0, bestLap: s.bestLap };
+            if(existing) {
+                existing.pos = entry.pos;
+                existing.points = entry.points;
+                existing.dnf = entry.dnf;
+                existing.bestLap = entry.bestLap;
+            } else {
+                p.history.push(entry);
+            }
+        });
+
         updateRank();
         if(config.round < config.total) { config.round++; generateRound(false); saveToMemory(); }
         else { config.state = 'finished'; saveToMemory(); document.getElementById('view-race').classList.add('hidden'); document.getElementById('view-rank').classList.add('hidden'); document.getElementById('view-end').classList.remove('hidden'); }
