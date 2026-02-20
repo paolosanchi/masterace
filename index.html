@@ -926,10 +926,10 @@
         return `${seconds}.${millis}`;
     }
 
-    function updatePilotMeta(li, bestLapMs, totalMs) {
+    function updatePilotMeta(li, bestLapMs, avgLapMs, totalMs) {
         let metaEl = li.querySelector('.pilot-meta');
         if(!metaEl) return;
-        metaEl.textContent = `BL ${formatMilliseconds(bestLapMs)} · TOT ${formatMilliseconds(totalMs)}`;
+        metaEl.textContent = `BL ${formatMilliseconds(bestLapMs)} · AVG ${formatMilliseconds(avgLapMs)} · TOT ${formatMilliseconds(totalMs)}`;
     }
 
     function laneLabelForPosition(posIndex) {
@@ -981,10 +981,11 @@
             const entry = results[carId];
             const name = entry.driver.name;
             const bestLap = entry.bestLapTime || 99999999;
+            const avgLap = entry.avgLapTime || 0;
             const totalTime = entry.totalTime || 0;
             const rank = entry.raceRanking ? entry.raceRanking.position : 99;
             if(!fastestPilotName && bestLap < minTime) { minTime = bestLap; fastestPilotName = name; }
-            parsedData.push({ name: name, time: bestLap, rank: rank, bestLapMs: bestLap, totalMs: totalTime });
+            parsedData.push({ name: name, time: bestLap, rank: rank, bestLapMs: bestLap, avgLapMs: avgLap, totalMs: totalTime });
         }
         parsedData.sort((a,b) => a.rank - b.rank);
 
@@ -1028,7 +1029,7 @@
             if(dataMap[pName]) {
                 let rank = dataMap[pName].rank;
                 li.setAttribute('data-rank', rank);
-                updatePilotMeta(li, dataMap[pName].bestLapMs, dataMap[pName].totalMs);
+                updatePilotMeta(li, dataMap[pName].bestLapMs, dataMap[pName].avgLapMs, dataMap[pName].totalMs);
                 matchedItems.push(li);
                 let radio = li.querySelector('input[type="radio"]');
                 // Only select if Best Lap is enabled
@@ -1082,7 +1083,7 @@
                          let dnfClass = config.useDnf ? "" : "dnf-hidden";
                          let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                          let currentCount = targetList.children.length + 1;
-                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabelForPosition(currentCount - 1)}</span><span class="pilot-meta">BL -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabelForPosition(currentCount - 1)}</span><span class="pilot-meta">BL -- · AVG -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
                          li.addEventListener('dragstart', () => li.classList.add('dragging'));
                          li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); });
                          targetList.appendChild(li);
@@ -1236,7 +1237,7 @@
                     let dnfClass = config.useDnf ? "" : "dnf-hidden";
                     let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                     let displayPos = isRestore ? (idx+1) : "-";
-                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${p.name}</span><span class="lane-meta">${laneLabelForPosition(idx)}</span><span class="pilot-meta">BL -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${p.name}</span><span class="lane-meta">${laneLabelForPosition(idx)}</span><span class="pilot-meta">BL -- · AVG -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
                     li.addEventListener('dragstart', () => li.classList.add('dragging'));
                     li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); });
                     list.appendChild(li);
