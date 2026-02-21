@@ -213,6 +213,12 @@
         .qualy-input { background: transparent; border: 1px solid #333; color: var(--neon-blue); font-family: 'Russo One'; font-size: 1.4rem; text-align: right; width: 180px; padding: 5px; transform: skew(-10deg); }
         .qualy-input:focus { outline: 1px solid var(--neon-blue); background: #000; }
         .qualy-input::-webkit-outer-spin-button, .qualy-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .qualy-heats-grid { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+        .qualy-heat-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #262626; }
+        .qualy-heat-row:first-of-type { border-top: none; }
+        .qualy-heat-pos { width: 28px; color: #666; font-family: 'Russo One'; }
+        .qualy-heat-name { flex: 1; text-align: left; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+        .qualy-heat-input { width: 260px; max-width: 52vw; }
 
         /* Podio style */
         .rank-table tr:nth-child(1) td { background: linear-gradient(90deg, rgba(255, 215, 0, 0.15), #1a1a1a); border-left-color: var(--gold); color: var(--gold); }
@@ -508,6 +514,11 @@
                     <input type="checkbox" id="pUseDnf"> GESTIONE DNF (RITIRATI)
                 </label>
             </div>
+            <div style="margin-top:10px; text-align:center;">
+                <label style="cursor:pointer; color:#aaa; font-size:0.9rem; display:flex; align-items:center; justify-content:center;">
+                    <input type="checkbox" id="pTop6FinalsMode" onchange="config.top6FinalsMode=this.checked; updateOfficialQualyAction()"> QUALIFICA A HEAT (3) + FINALI TOP 6
+                </label>
+            </div>
         </div>
 
         <button class="btn-action" onclick="startChampionship()">PROSEGUI >></button>
@@ -525,13 +536,15 @@
             <button class="btn-csv-backup" onclick="triggerCsvImport('qualy')">📄 CSV</button>
         </div>
 
+        <div id="qualy-heats-container" class="qualy-heats-grid hidden"></div>
+
         <table id="tbl-qualy" style="margin-bottom: 30px;">
             <thead><tr><th>Pos</th><th>Pilota</th><th>Tempo (Sec)</th></tr></thead>
             <tbody id="body-qualy"></tbody>
         </table>
 
-        <button class="btn-action" onclick="confirmQualyAndStart()">GENERA ROUND 1 >></button>
-        <button class="btn-action hidden" id="btn-official-finals" onclick="startOfficialFinalsFromQualy()" style="margin-top:10px; background: var(--neon-yellow);">GENERA FINALI TOP 6 (REGOLAMENTO)</button>
+        <button class="btn-action" id="btn-qualy-next" onclick="confirmQualyAndStart()">GENERA ROUND 1 >></button>
+        <button class="btn-action hidden" id="btn-official-finals" onclick="startOfficialFinalsFromQualy()" style="margin-top:10px; background: var(--neon-yellow); display:none;">GENERA FINALI TOP 6 (REGOLAMENTO)</button>
     </div>
 
     <div id="view-race" class="box hidden">
@@ -622,6 +635,8 @@
         heatsPerRound: 3,
         raceTemplate: 'mini4wd',
         showLanes: true,
+        top6FinalsMode: false,
+        qualyHeatGroups: null,
         liveHeatState: null
     };
     const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
@@ -908,7 +923,8 @@
                 bestLapEnabled: false,
                 showLanes: true,
                 useDnf: true,
-                suspense: false
+                suspense: false,
+                top6FinalsMode: true
             };
         }
         if(templateId === 'mini4wd') {
@@ -924,7 +940,8 @@
                 bestLapEnabled: true,
                 showLanes: true,
                 useDnf: false,
-                suspense: true
+                suspense: true,
+                top6FinalsMode: false
             };
         }
         return {
@@ -939,16 +956,21 @@
             bestLapEnabled: false,
             showLanes: false,
             useDnf: false,
-            suspense: true
+            suspense: true,
+            top6FinalsMode: false
         };
     }
 
     function updateOfficialQualyAction() {
         const btn = document.getElementById('btn-official-finals');
-        if(!btn) return;
-        const isOfficial = (document.getElementById('pRaceTemplate')?.value || config.raceTemplate) === 'mini4wd_official';
+        const nextBtn = document.getElementById('btn-qualy-next');
+        if(!btn || !nextBtn) return;
+        const isOfficial = !!config.top6FinalsMode;
         const inQualy = !document.getElementById('view-qualy').classList.contains('hidden');
-        btn.classList.toggle('hidden', !(isOfficial && inQualy));
+        btn.classList.add('hidden');
+        nextBtn.textContent = (isOfficial && inQualy)
+            ? 'GENERA FINALI TOP 6 (REGOLAMENTO)'
+            : 'GENERA ROUND 1 >>';
     }
 
     function onRaceTemplateChange(applyDefaults = true) {
@@ -972,6 +994,8 @@
         document.getElementById('pShowLanes').checked = defaults.showLanes;
         document.getElementById('pUseDnf').checked = defaults.useDnf;
         document.getElementById('pSuspense').checked = defaults.suspense;
+        document.getElementById('pTop6FinalsMode').checked = !!defaults.top6FinalsMode;
+        config.top6FinalsMode = !!defaults.top6FinalsMode;
         updateGroupingModeUI();
         updateScoringUI();
         toggleBestLapUI();
@@ -992,8 +1016,10 @@
             document.getElementById('pShowLanes').checked = (config.showLanes !== undefined) ? config.showLanes : true;
             document.getElementById('pSuspense').checked = config.suspense;
             document.getElementById('pUseDnf').checked = config.useDnf;
+            document.getElementById('pTop6FinalsMode').checked = !!config.top6FinalsMode;
             updateGroupingModeUI();
             onRaceTemplateChange(false);
+            config.top6FinalsMode = document.getElementById('pTop6FinalsMode').checked;
             updateOfficialQualyAction();
             
             document.getElementById('pScoring').value = config.scoringSystem || 'std';
@@ -1048,10 +1074,7 @@
     }
 
     function laneLabelForPosition(posIndex) {
-        if((config.raceTemplate || 'mini4wd') === 'mini4wd') {
-            return `Lane ${((posIndex % 3) + 1)}`;
-        }
-        return `Start ${posIndex + 1}`;
+        return `Lane ${((posIndex % 3) + 1)}`;
     }
 
     function buildHeatItemHtml(name, displayPos, laneLabel, pilotMetaText, blClass, dnfClass, radioGroupName) {
@@ -1151,7 +1174,10 @@
         const session = await fetchLastSessionData();
         
         if(btn) { 
-            btn.innerText = context === 'setup' || context === 'qualy' ? (context==='setup' ? "☁️ IMPORTA ISCRITTI" : "☁️ SINCRONIZZA QUALIFICA") : "🔄 SINCRONIZZA"; 
+            if(context === 'setup') btn.innerText = "☁️ IMPORTA ISCRITTI";
+            else if(context === 'qualy') btn.innerText = "☁️ SINCRONIZZA QUALIFICA";
+            else if(String(context).startsWith('qualyheat-')) btn.innerText = "🔄 SINCRONIZZA HEAT";
+            else btn.innerText = "🔄 SINCRONIZZA";
             btn.classList.remove('loading'); 
         }
 
@@ -1176,6 +1202,7 @@
 
         if (context === 'setup') applyCloudDataToSetup(parsedData);
         else if (context === 'qualy') applyCloudDataToQualy(parsedData);
+        else if (String(context).startsWith('qualyheat-')) applyCloudDataToQualyHeat(parsedData, parseInt(String(context).split('-')[1], 10));
         else applyCloudDataToHeat(parsedData, parseInt(context), fastestPilotName);
     }
 
@@ -1205,7 +1232,8 @@
         return String(rawValue)
             .split(/[\s,;]+/)
             .map(normalizeQualySeconds)
-            .filter(v => v !== null);
+            .filter(v => v !== null)
+            .slice(0, 4);
     }
 
     function refreshOfficialQualyScore(pilot) {
@@ -1217,7 +1245,7 @@
 
     function applyCloudDataToQualy(data) {
         let updates = 0;
-        const isOfficial = (config.raceTemplate || '') === 'mini4wd_official';
+        const isOfficial = !!config.top6FinalsMode;
         data.forEach(entry => {
             let p = pilots.find(p => p.name.toLowerCase() === entry.name.toLowerCase());
             if(!p) return;
@@ -1237,6 +1265,89 @@
         });
         renderQualyList(); saveToMemory();
         alert(`Qualifiche: Aggiornati ${updates} tempi.`);
+    }
+
+    function applyCloudDataToQualyHeat(data, heatIndex) {
+        if(!config.top6FinalsMode) {
+            applyCloudDataToQualy(data);
+            return;
+        }
+        ensureOfficialQualyHeatGroups();
+        const groups = Array.isArray(config.qualyHeatGroups) ? config.qualyHeatGroups : [];
+        const names = groups[heatIndex];
+        if(!Array.isArray(names) || !names.length) return;
+        const targetNames = new Set(names.map(n => String(n).toLowerCase()));
+
+        let updates = 0;
+        data.forEach(entry => {
+            const key = String(entry.name || '').toLowerCase();
+            if(!targetNames.has(key)) return;
+            const p = pilots.find(x => x.name.toLowerCase() === key);
+            if(!p) return;
+            const attempt = normalizeQualySeconds(entry.time);
+            if(attempt === null) return;
+            if(!Array.isArray(p.qualyAttempts)) p.qualyAttempts = [];
+            if(p.qualyAttempts.length >= 4) return;
+            const alreadyPresent = p.qualyAttempts.some(t => Math.abs(t - attempt) < 0.0005);
+            if(!alreadyPresent) {
+                p.qualyAttempts.push(attempt);
+                refreshOfficialQualyScore(p);
+                updates++;
+            }
+        });
+
+        renderQualyList();
+        saveToMemory();
+        alert(`Qualifica Heat ${heatIndex + 1}: aggiornati ${updates} tempi.`);
+    }
+
+    function ensureOfficialQualyHeatGroups() {
+        if(!config.top6FinalsMode) return;
+        const pilotNames = pilots.map(p => p.name);
+        const groups = Array.isArray(config.qualyHeatGroups) ? config.qualyHeatGroups : null;
+        const flat = groups ? groups.flat() : [];
+        const hasAllPilots = groups && flat.length === pilotNames.length && pilotNames.every(n => flat.includes(n));
+        const noDuplicates = groups && new Set(flat).size === flat.length;
+        if(hasAllPilots && noDuplicates) return;
+
+        const nextGroups = [];
+        for(let i = 0; i < pilotNames.length; i += 3) {
+            nextGroups.push(pilotNames.slice(i, i + 3));
+        }
+        config.qualyHeatGroups = nextGroups;
+        saveToMemory();
+    }
+
+    function renderOfficialQualyHeats() {
+        const container = document.getElementById('qualy-heats-container');
+        if(!container) return;
+        ensureOfficialQualyHeatGroups();
+        const groups = Array.isArray(config.qualyHeatGroups) ? config.qualyHeatGroups : [];
+        container.innerHTML = '';
+
+        groups.forEach((group, heatIdx) => {
+            const heatDiv = document.createElement('div');
+            heatDiv.className = 'heat-container';
+            const heatAttempts = group.map(name => {
+                const pilot = pilots.find(p => p.name === name);
+                return Array.isArray(pilot?.qualyAttempts) ? pilot.qualyAttempts.length : 0;
+            });
+            const completedRuns = heatAttempts.length ? Math.min(4, Math.max(...heatAttempts)) : 0;
+            const nextRun = Math.min(4, completedRuns + 1);
+            heatDiv.innerHTML = `<div class="heat-header"><strong style="color:var(--neon-blue); font-family:'Russo One'; font-size:1.2rem; letter-spacing:1px;">QUALY HEAT ${heatIdx + 1}/${groups.length} · RUN ${nextRun}/4</strong><div class="controls"><button id="btn-sync-qualyheat-${heatIdx}" class="btn-mini-sync" onclick="syncWithCloud('qualyheat-${heatIdx}')">🔄 SINCRONIZZA HEAT</button></div></div>`;
+
+            group.forEach((pilotName, laneIdx) => {
+                const pilot = pilots.find(p => p.name === pilotName);
+                const attemptsText = pilot && Array.isArray(pilot.qualyAttempts) ? pilot.qualyAttempts.join(', ') : '';
+                const laneForNextRun = ((laneIdx + completedRuns) % 3) + 1;
+                const row = document.createElement('div');
+                row.className = 'qualy-heat-row';
+                row.innerHTML = `<span class="qualy-heat-pos">L${laneForNextRun}</span><span class="qualy-heat-name">${pilotName}</span><input type="text" class="qualy-input qualy-heat-input" value="${attemptsText}" placeholder="Max 4 run: 10.123, 10.045, 9.998, 9.990" onchange="updateQualyAttempts('${pilotName}', this.value)">`;
+                heatDiv.appendChild(row);
+            });
+
+            container.appendChild(heatDiv);
+        });
     }
 
     function applyCloudDataToHeat(data, heatIndex, fastestName) {
@@ -1286,6 +1397,7 @@
              if(pilots.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert("Esiste già!");
              let newPilot = { name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] };
              pilots.push(newPilot);
+             if(config.state === 'qualy' && config.top6FinalsMode) config.qualyHeatGroups = null;
              saveToMemory();
              
              if(config.state === 'qualy') {
@@ -1377,6 +1489,8 @@
         config.customPoints = document.getElementById('pCustomPoints').value;
         config.bestLapEnabled = document.getElementById('pBestLapEnabled').checked;
         config.bestLapPoints = parseFloat(document.getElementById('pBestLapPoints').value) || 1;
+        config.top6FinalsMode = document.getElementById('pTop6FinalsMode').checked;
+        config.qualyHeatGroups = null;
 
         pilots.forEach(p => p.history = []);
         document.getElementById('view-setup').classList.add('hidden');
@@ -1398,13 +1512,18 @@
     }
 
     function renderQualyList() {
-        const isOfficial = (config.raceTemplate || '') === 'mini4wd_official';
+        const isOfficial = !!config.top6FinalsMode;
+        const qualyHeatContainer = document.getElementById('qualy-heats-container');
+        const qualyTable = document.getElementById('tbl-qualy');
         const headRow = document.querySelector('#tbl-qualy thead tr');
         if(headRow) {
             headRow.innerHTML = isOfficial
-                ? '<th>Pos</th><th>Pilota</th><th>TEMPI (SEC)</th><th>SOMMA BEST 2</th>'
+                ? '<th>Pos</th><th>Pilota</th><th>TENTATIVI (SEC)</th><th>SOMMA BEST 2</th>'
                 : '<th>Pos</th><th>Pilota</th><th>Tempo (Sec)</th>';
         }
+
+        if(qualyHeatContainer) qualyHeatContainer.classList.toggle('hidden', !isOfficial);
+        if(qualyTable) qualyTable.classList.remove('hidden');
 
         pilots.forEach(p => {
             if(isOfficial) {
@@ -1421,12 +1540,13 @@
         });
 
         pilots.sort((a,b) => a.qualy - b.qualy);
+        if(isOfficial) renderOfficialQualyHeats();
         let tbody = document.getElementById('body-qualy'); tbody.innerHTML = "";
         pilots.forEach((p, i) => {
             if(isOfficial) {
                 let attemptsText = Array.isArray(p.qualyAttempts) ? p.qualyAttempts.join(', ') : '';
                 let scoreText = p.qualy === 999999 ? '-- (min 2 tempi)' : p.qualy.toFixed(3);
-                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="text" class="qualy-input" value="${attemptsText}" placeholder="Es: 10.123, 10.045, 9.998" onchange="updateQualyAttempts('${p.name}', this.value)"></td><td>${scoreText}</td></tr>`;
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td>${attemptsText || '--'}</td><td>${scoreText}</td></tr>`;
             } else {
                 let val = p.qualy === 999999 ? "" : p.qualy;
                 tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="number" step="0.001" class="qualy-input" value="${val}" placeholder="--" onchange="updateQualyTime('${p.name}', this.value)"></td></tr>`;
@@ -1449,7 +1569,7 @@
     }
 
     function confirmQualyAndStart() {
-        if((config.raceTemplate || '') === 'mini4wd_official') {
+        if(config.top6FinalsMode) {
             startOfficialFinalsFromQualy();
             return;
         }
@@ -1463,7 +1583,7 @@
     }
 
     function startOfficialFinalsFromQualy() {
-        if((config.raceTemplate || '') !== 'mini4wd_official') return;
+        if(!config.top6FinalsMode) return;
 
         pilots.forEach(p => {
             if(!Array.isArray(p.qualyAttempts)) {
