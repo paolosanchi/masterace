@@ -162,6 +162,14 @@
 
         /* BATTERIE */
         .heat-container { background: #151515; padding: 15px; margin-bottom: 20px; border-left: 5px solid var(--neon-blue); text-align: left; border-radius: 0 6px 6px 0; }
+        .heat-separator {
+            border: 0;
+            height: 3px;
+            margin: 8px 0 22px 0;
+            background: linear-gradient(90deg, transparent 0%, var(--neon-blue) 20%, var(--neon-yellow) 50%, var(--neon-blue) 80%, transparent 100%);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.45), 0 0 4px rgba(252, 238, 10, 0.35);
+            border-radius: 999px;
+        }
         .heat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         
         .heat-cols-label { display: flex; justify-content: flex-end; padding-right: 56px; margin-bottom: 5px; color: #666; font-size: 0.7rem; font-weight: bold; letter-spacing: 1px; align-items: center; }
@@ -404,6 +412,7 @@
             <select id="pRaceTemplate" onchange="onRaceTemplateChange()">
                 <option value="generic">RACING GENERICO</option>
                 <option value="mini4wd">MINI4WD (HEAT MULTIPLE + CORSIE)</option>
+                <option value="mini4wd_official">MINI4WD REGOLAMENTO UFFICIALE</option>
             </select>
             <p id="race-template-hint" style="margin:8px 0 0 0; font-size:0.8rem; color:#666;">Preset neutro per gare racing generiche.</p>
         </div>
@@ -522,6 +531,7 @@
         </table>
 
         <button class="btn-action" onclick="confirmQualyAndStart()">GENERA ROUND 1 >></button>
+        <button class="btn-action hidden" id="btn-official-finals" onclick="startOfficialFinalsFromQualy()" style="margin-top:10px; background: var(--neon-yellow);">GENERA FINALI TOP 6 (REGOLAMENTO)</button>
     </div>
 
     <div id="view-race" class="box hidden">
@@ -885,14 +895,36 @@
     }
 
     function getRaceTemplateDefaults(templateId) {
+        if(templateId === 'mini4wd_official') {
+            return {
+                hint: 'Regolamento ufficiale: Top 6 da qualifica, Finale/Finalina a 3 manche, punti 4-2-1.',
+                groupMode: 'size',
+                groupSize: 3,
+                heatsPerRound: 3,
+                totalRounds: 1,
+                startMode: 'qualy',
+                scoringSystem: 'custom',
+                customPoints: '4,2,1',
+                bestLapEnabled: false,
+                showLanes: true,
+                useDnf: true,
+                suspense: false
+            };
+        }
         if(templateId === 'mini4wd') {
             return {
                 hint: 'Template Mini4WD: 3 heat per round, best lap e corsie attive.',
                 groupMode: 'size',
                 groupSize: 3,
                 heatsPerRound: 3,
+                totalRounds: 3,
+                startMode: 'random',
+                scoringSystem: 'std',
+                customPoints: '',
                 bestLapEnabled: true,
-                showLanes: true
+                showLanes: true,
+                useDnf: false,
+                suspense: true
             };
         }
         return {
@@ -900,9 +932,23 @@
             groupMode: 'groups',
             groupSize: 5,
             heatsPerRound: 1,
+            totalRounds: 3,
+            startMode: 'random',
+            scoringSystem: 'std',
+            customPoints: '',
             bestLapEnabled: false,
-            showLanes: false
+            showLanes: false,
+            useDnf: false,
+            suspense: true
         };
+    }
+
+    function updateOfficialQualyAction() {
+        const btn = document.getElementById('btn-official-finals');
+        if(!btn) return;
+        const isOfficial = (document.getElementById('pRaceTemplate')?.value || config.raceTemplate) === 'mini4wd_official';
+        const inQualy = !document.getElementById('view-qualy').classList.contains('hidden');
+        btn.classList.toggle('hidden', !(isOfficial && inQualy));
     }
 
     function onRaceTemplateChange(applyDefaults = true) {
@@ -918,10 +964,18 @@
         document.getElementById('pGroupMode').value = defaults.groupMode;
         document.getElementById('pGroupSize').value = defaults.groupSize;
         document.getElementById('pHeatsPerRound').value = defaults.heatsPerRound;
+        document.getElementById('pRounds').value = defaults.totalRounds;
+        document.getElementById('pStartMode').value = defaults.startMode;
+        document.getElementById('pScoring').value = defaults.scoringSystem;
+        document.getElementById('pCustomPoints').value = defaults.customPoints;
         document.getElementById('pBestLapEnabled').checked = defaults.bestLapEnabled;
         document.getElementById('pShowLanes').checked = defaults.showLanes;
+        document.getElementById('pUseDnf').checked = defaults.useDnf;
+        document.getElementById('pSuspense').checked = defaults.suspense;
         updateGroupingModeUI();
+        updateScoringUI();
         toggleBestLapUI();
+        updateOfficialQualyAction();
     }
 
     function restoreState() {
@@ -940,6 +994,7 @@
             document.getElementById('pUseDnf').checked = config.useDnf;
             updateGroupingModeUI();
             onRaceTemplateChange(false);
+            updateOfficialQualyAction();
             
             document.getElementById('pScoring').value = config.scoringSystem || 'std';
             if(config.customPoints) document.getElementById('pCustomPoints').value = config.customPoints;
@@ -954,6 +1009,7 @@
         } else if (config.state === 'qualy') {
             document.getElementById('view-qualy').classList.remove('hidden');
             renderQualyList();
+            updateOfficialQualyAction();
         } else if(config.state === 'racing') {
             document.getElementById('view-race').classList.remove('hidden');
             document.getElementById('view-rank').classList.remove('hidden');
@@ -1069,21 +1125,21 @@
     async function fetchLastSessionData() {
         if(!dbConfig.url || !dbConfig.key) { alert("Configura prima il database!"); return null; }
         const AUTH = btoa(dbConfig.key + ":" + dbConfig.pass);
-        const endpoint = `${dbConfig.url}/_all_docs?include_docs=true&descending=true&limit=50`;
+        const endpoint = `${dbConfig.url}/_find`;
         try {
             const response = await fetch(endpoint, {
-                method: 'GET',
-                headers: { 'Authorization': 'Basic ' + AUTH, 'Content-Type': 'application/json' }
+                method: 'POST',
+                headers: { 'Authorization': 'Basic ' + AUTH, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    selector: { doctype: 'Session', state: 'complete' },
+                    sort: [{ _id: 'desc' }],
+                    limit: 1
+                })
             });
+            if(!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
-            let session = null;
-            for(let row of data.rows) {
-                if (row.doc && row.doc.doctype === 'Session' && row.doc.state === 'complete') {
-                    session = row.doc;
-                    break;
-                }
-            }
-            return session;
+            const docs = Array.isArray(data.docs) ? data.docs : [];
+            return docs.length ? docs[0] : null;
         } catch (error) { console.error(error); alert("Errore DB: " + error.message); return null; }
     }
 
@@ -1128,7 +1184,7 @@
         data.forEach(entry => {
             let existing = pilots.find(p => p.name.toLowerCase() === entry.name.toLowerCase());
             if(!existing) { 
-                pilots.push({ name: entry.name, points: 0, tieBreak: false, qualy: 999999, history: [] }); 
+                pilots.push({ name: entry.name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] }); 
                 addedCount++; 
             }
         });
@@ -1136,11 +1192,48 @@
         alert(`Setup: ${addedCount} nuovi piloti aggiunti.`);
     }
 
+    function normalizeQualySeconds(value) {
+        let n = parseFloat(value);
+        if(!Number.isFinite(n) || n <= 0) return null;
+        if(n >= 999999) return null;
+        if(n > 1000) n = n / 1000;
+        return parseFloat(n.toFixed(3));
+    }
+
+    function parseQualyAttempts(rawValue) {
+        if(rawValue === undefined || rawValue === null) return [];
+        return String(rawValue)
+            .split(/[\s,;]+/)
+            .map(normalizeQualySeconds)
+            .filter(v => v !== null);
+    }
+
+    function refreshOfficialQualyScore(pilot) {
+        if(!pilot) return;
+        if(!Array.isArray(pilot.qualyAttempts)) pilot.qualyAttempts = [];
+        let sorted = [...pilot.qualyAttempts].sort((a,b) => a - b);
+        pilot.qualy = sorted.length >= 2 ? parseFloat((sorted[0] + sorted[1]).toFixed(3)) : 999999;
+    }
+
     function applyCloudDataToQualy(data) {
         let updates = 0;
+        const isOfficial = (config.raceTemplate || '') === 'mini4wd_official';
         data.forEach(entry => {
             let p = pilots.find(p => p.name.toLowerCase() === entry.name.toLowerCase());
-            if(p) { p.qualy = entry.time; updates++; }
+            if(!p) return;
+            if(isOfficial) {
+                let attempt = normalizeQualySeconds(entry.time);
+                if(attempt !== null) {
+                    if(!Array.isArray(p.qualyAttempts)) p.qualyAttempts = [];
+                    let alreadyPresent = p.qualyAttempts.some(t => Math.abs(t - attempt) < 0.0005);
+                    if(!alreadyPresent) p.qualyAttempts.push(attempt);
+                    refreshOfficialQualyScore(p);
+                    updates++;
+                }
+            } else {
+                p.qualy = entry.time;
+                updates++;
+            }
         });
         renderQualyList(); saveToMemory();
         alert(`Qualifiche: Aggiornati ${updates} tempi.`);
@@ -1183,7 +1276,7 @@
         let inp = document.getElementById('pName'); let name = inp.value.trim();
         if(!name) return;
         if(pilots.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert("Esiste già!");
-        pilots.push({ name: name, points: 0, tieBreak: false, qualy: 999999, history: [] });
+        pilots.push({ name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] });
         inp.value = ""; renderPilotList(); updateSuggestedGroups(); saveToMemory();
     }
     
@@ -1191,7 +1284,7 @@
         let name = prompt("Inserisci il nome del nuovo pilota:");
         if(name) {
              if(pilots.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert("Esiste già!");
-             let newPilot = { name: name, points: 0, tieBreak: false, qualy: 999999, history: [] };
+             let newPilot = { name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] };
              pilots.push(newPilot);
              saveToMemory();
              
@@ -1292,6 +1385,7 @@
             config.state = 'qualy';
             document.getElementById('view-qualy').classList.remove('hidden');
             renderQualyList();
+            updateOfficialQualyAction();
         } else {
             config.state = 'racing'; config.round = 1;
             pilots.sort(() => 0.5 - Math.random()); 
@@ -1304,13 +1398,49 @@
     }
 
     function renderQualyList() {
-        pilots.forEach(p => { if(p.qualy > 1000 && p.qualy !== 999999) p.qualy = p.qualy / 1000; });
+        const isOfficial = (config.raceTemplate || '') === 'mini4wd_official';
+        const headRow = document.querySelector('#tbl-qualy thead tr');
+        if(headRow) {
+            headRow.innerHTML = isOfficial
+                ? '<th>Pos</th><th>Pilota</th><th>TEMPI (SEC)</th><th>SOMMA BEST 2</th>'
+                : '<th>Pos</th><th>Pilota</th><th>Tempo (Sec)</th>';
+        }
+
+        pilots.forEach(p => {
+            if(isOfficial) {
+                if(!Array.isArray(p.qualyAttempts) || p.qualyAttempts.length === 0) {
+                    let fallback = normalizeQualySeconds(p.qualy);
+                    p.qualyAttempts = fallback !== null ? [fallback] : [];
+                } else {
+                    p.qualyAttempts = p.qualyAttempts.map(normalizeQualySeconds).filter(v => v !== null);
+                }
+                refreshOfficialQualyScore(p);
+            } else {
+                if(p.qualy > 1000 && p.qualy !== 999999) p.qualy = p.qualy / 1000;
+            }
+        });
+
         pilots.sort((a,b) => a.qualy - b.qualy);
         let tbody = document.getElementById('body-qualy'); tbody.innerHTML = "";
         pilots.forEach((p, i) => {
-            let val = p.qualy === 999999 ? "" : p.qualy;
-            tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="number" step="0.001" class="qualy-input" value="${val}" placeholder="--" onchange="updateQualyTime('${p.name}', this.value)"></td></tr>`;
+            if(isOfficial) {
+                let attemptsText = Array.isArray(p.qualyAttempts) ? p.qualyAttempts.join(', ') : '';
+                let scoreText = p.qualy === 999999 ? '-- (min 2 tempi)' : p.qualy.toFixed(3);
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="text" class="qualy-input" value="${attemptsText}" placeholder="Es: 10.123, 10.045, 9.998" onchange="updateQualyAttempts('${p.name}', this.value)"></td><td>${scoreText}</td></tr>`;
+            } else {
+                let val = p.qualy === 999999 ? "" : p.qualy;
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="number" step="0.001" class="qualy-input" value="${val}" placeholder="--" onchange="updateQualyTime('${p.name}', this.value)"></td></tr>`;
+            }
         });
+    }
+
+    function updateQualyAttempts(pilotName, value) {
+        let p = pilots.find(x => x.name === pilotName);
+        if(!p) return;
+        p.qualyAttempts = parseQualyAttempts(value);
+        refreshOfficialQualyScore(p);
+        renderQualyList();
+        saveToMemory();
     }
 
     function updateQualyTime(pilotName, value) {
@@ -1319,6 +1449,10 @@
     }
 
     function confirmQualyAndStart() {
+        if((config.raceTemplate || '') === 'mini4wd_official') {
+            startOfficialFinalsFromQualy();
+            return;
+        }
         config.state = 'racing'; config.round = 1;
         pilots.sort((a,b) => a.qualy - b.qualy);
         document.getElementById('view-qualy').classList.add('hidden');
@@ -1326,6 +1460,61 @@
         document.getElementById('view-rank').classList.remove('hidden');
         if(config.suspense) document.getElementById('tbl-rank').classList.add('blur-mode');
         generateRound(true); updateRank(); saveToMemory();
+    }
+
+    function startOfficialFinalsFromQualy() {
+        if((config.raceTemplate || '') !== 'mini4wd_official') return;
+
+        pilots.forEach(p => {
+            if(!Array.isArray(p.qualyAttempts)) {
+                let fallback = normalizeQualySeconds(p.qualy);
+                p.qualyAttempts = fallback !== null ? [fallback] : [];
+            }
+            refreshOfficialQualyScore(p);
+        });
+
+        let qualified = [...pilots]
+            .filter(p => Array.isArray(p.qualyAttempts) && p.qualyAttempts.length >= 2 && p.qualy !== 999999)
+            .sort((a,b) => a.qualy - b.qualy);
+
+        if(qualified.length < 6) {
+            return alert("Servono almeno 6 piloti con almeno 2 tempi validi in qualifica.");
+        }
+
+        if(!confirm("Generare Finale+Finalina con i TOP 6? I piloti fuori TOP 6 non correranno le finali.")) return;
+
+        pilots = qualified.slice(0, 6).map(p => ({
+            name: p.name,
+            points: 0,
+            tieBreak: false,
+            qualy: p.qualy,
+            qualyAttempts: [...p.qualyAttempts],
+            history: []
+        }));
+
+        config.groupMode = 'size';
+        config.groupSize = 3;
+        config.groups = 2;
+        config.heatsPerRound = 3;
+        config.total = 1;
+        config.bestLapEnabled = false;
+        config.showLanes = true;
+        config.useDnf = true;
+        config.scoringSystem = 'custom';
+        config.customPoints = '4,2,1';
+        config.state = 'racing';
+        config.round = 1;
+        config.liveHeatState = null;
+
+        document.getElementById('view-qualy').classList.add('hidden');
+        document.getElementById('view-race').classList.remove('hidden');
+        document.getElementById('view-rank').classList.remove('hidden');
+        document.getElementById('tbl-rank').classList.remove('blur-mode');
+
+        generateRound(false);
+        updateRank();
+        saveToMemory();
+        alert("Finali generate: Batteria 1 = Finale (Top 3), Batteria 2 = Finalina (4°-6°).");
     }
 
     function generateRound(isRestore) {
@@ -1356,6 +1545,11 @@
 
             for(let h=0; h<heatsPerRound; h++) {
                 let rotatedChunk = chunk.map((_, idx) => chunk[(idx + h) % chunk.length]);
+                if(i > 0 && h === 0) {
+                    let separator = document.createElement('hr');
+                    separator.className = 'heat-separator';
+                    container.appendChild(separator);
+                }
                 let heatDiv = document.createElement('div'); heatDiv.className = 'heat-container';
                 let dnfHeaderStyle = config.useDnf ? "" : "display:none;";
                 let blHeaderStyle = config.bestLapEnabled ? "" : "display:none;";
