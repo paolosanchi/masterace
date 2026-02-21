@@ -400,6 +400,14 @@
         
         <h3>2. CONFIGURAZIONE GARA</h3>
         <div style="max-width: 500px; margin: 0 auto 15px auto;">
+            <label style="display:block; margin-bottom:5px; color: var(--neon-blue);">TEMPLATE GARA</label>
+            <select id="pRaceTemplate" onchange="onRaceTemplateChange()">
+                <option value="generic">RACING GENERICO</option>
+                <option value="mini4wd">MINI4WD (HEAT MULTIPLE + CORSIE)</option>
+            </select>
+            <p id="race-template-hint" style="margin:8px 0 0 0; font-size:0.8rem; color:#666;">Preset neutro per gare racing generiche.</p>
+        </div>
+        <div style="max-width: 500px; margin: 0 auto 15px auto;">
             <label style="display:block; margin-bottom:5px; color: var(--neon-blue);">LOGICA BATTERIE</label>
             <select id="pGroupMode" onchange="updateGroupingModeUI()">
                 <option value="groups">PER NUMERO DI GRUPPI</option>
@@ -439,6 +447,11 @@
                     <button class="btn-num" onclick="adjustValue('pHeatsPerRound', 1)">+</button>
                 </div>
             </div>
+        </div>
+        <div style="max-width:500px; margin:0 auto 15px auto; text-align:left;">
+            <label style="cursor:pointer; color:#aaa; font-size:0.9rem; display:flex; align-items:center; justify-content:center;">
+                <input type="checkbox" id="pShowLanes"> MOSTRA CORSIE / POSIZIONI DI PARTENZA
+            </label>
         </div>
         
         <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 4px; max-width: 500px; margin: auto;">
@@ -597,6 +610,8 @@
         bestLapEnabled: true, bestLapPoints: 1,
         groupMode: 'groups', groupSize: 5,
         heatsPerRound: 3,
+        raceTemplate: 'mini4wd',
+        showLanes: true,
         liveHeatState: null
     };
     const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
@@ -869,19 +884,62 @@
         updateSuggestedGroups();
     }
 
+    function getRaceTemplateDefaults(templateId) {
+        if(templateId === 'mini4wd') {
+            return {
+                hint: 'Template Mini4WD: 3 heat per round, best lap e corsie attive.',
+                groupMode: 'size',
+                groupSize: 3,
+                heatsPerRound: 3,
+                bestLapEnabled: true,
+                showLanes: true
+            };
+        }
+        return {
+            hint: 'Preset neutro per gare racing generiche.',
+            groupMode: 'groups',
+            groupSize: 5,
+            heatsPerRound: 1,
+            bestLapEnabled: false,
+            showLanes: false
+        };
+    }
+
+    function onRaceTemplateChange(applyDefaults = true) {
+        const templateEl = document.getElementById('pRaceTemplate');
+        if(!templateEl) return;
+        const selected = templateEl.value || 'generic';
+        const defaults = getRaceTemplateDefaults(selected);
+        const hintEl = document.getElementById('race-template-hint');
+        if(hintEl) hintEl.textContent = defaults.hint;
+
+        if(!applyDefaults) return;
+
+        document.getElementById('pGroupMode').value = defaults.groupMode;
+        document.getElementById('pGroupSize').value = defaults.groupSize;
+        document.getElementById('pHeatsPerRound').value = defaults.heatsPerRound;
+        document.getElementById('pBestLapEnabled').checked = defaults.bestLapEnabled;
+        document.getElementById('pShowLanes').checked = defaults.showLanes;
+        updateGroupingModeUI();
+        toggleBestLapUI();
+    }
+
     function restoreState() {
         ['view-setup', 'view-qualy', 'view-race', 'view-end', 'view-rank'].forEach(id => document.getElementById(id).classList.add('hidden'));
 
         if(!config.state || config.state === 'setup') {
             document.getElementById('view-setup').classList.remove('hidden');
+            document.getElementById('pRaceTemplate').value = config.raceTemplate || 'mini4wd';
             document.getElementById('pGroups').value = config.groups || 2;
             document.getElementById('pGroupMode').value = config.groupMode || 'groups';
             document.getElementById('pGroupSize').value = config.groupSize || 5;
             document.getElementById('pRounds').value = config.total || 3;
             document.getElementById('pHeatsPerRound').value = config.heatsPerRound || 3;
+            document.getElementById('pShowLanes').checked = (config.showLanes !== undefined) ? config.showLanes : true;
             document.getElementById('pSuspense').checked = config.suspense;
             document.getElementById('pUseDnf').checked = config.useDnf;
             updateGroupingModeUI();
+            onRaceTemplateChange(false);
             
             document.getElementById('pScoring').value = config.scoringSystem || 'std';
             if(config.customPoints) document.getElementById('pCustomPoints').value = config.customPoints;
@@ -934,11 +992,15 @@
     }
 
     function laneLabelForPosition(posIndex) {
-        return `Lane ${((posIndex % 3) + 1)}`;
+        if((config.raceTemplate || 'mini4wd') === 'mini4wd') {
+            return `Lane ${((posIndex % 3) + 1)}`;
+        }
+        return `Start ${posIndex + 1}`;
     }
 
     function buildHeatItemHtml(name, displayPos, laneLabel, pilotMetaText, blClass, dnfClass, radioGroupName) {
-        return `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabel}</span><span class="pilot-meta">${pilotMetaText}</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="${radioGroupName}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this); saveCurrentHeatState()"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf" onchange="saveCurrentHeatState()"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+        let laneHtml = laneLabel ? `<span class="lane-meta">${laneLabel}</span>` : '';
+        return `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${name}</span>${laneHtml}<span class="pilot-meta">${pilotMetaText}</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="${radioGroupName}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this); saveCurrentHeatState()"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf" onchange="saveCurrentHeatState()"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
     }
 
     function saveCurrentHeatState() {
@@ -1151,7 +1213,8 @@
                          let dnfClass = config.useDnf ? "" : "dnf-hidden";
                          let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                          let currentCount = targetList.children.length + 1;
-                         li.innerHTML = buildHeatItemHtml(name, currentCount, laneLabelForPosition(currentCount - 1), 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${heatIndex}`);
+                         let laneLabel = config.showLanes ? laneLabelForPosition(currentCount - 1) : '';
+                         li.innerHTML = buildHeatItemHtml(name, currentCount, laneLabel, 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${heatIndex}`);
                          li.addEventListener('dragstart', () => li.classList.add('dragging'));
                          li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); saveCurrentHeatState(); });
                          targetList.appendChild(li);
@@ -1200,10 +1263,12 @@
 
     function startChampionship() {
         if(pilots.length < 2) return alert("Minimo 2 piloti!");
+        config.raceTemplate = document.getElementById('pRaceTemplate').value || 'generic';
         config.groupMode = document.getElementById('pGroupMode').value;
         config.groupSize = parseInt(document.getElementById('pGroupSize').value) || 5;
         config.heatsPerRound = parseInt(document.getElementById('pHeatsPerRound').value) || 3;
         if(config.heatsPerRound < 1) config.heatsPerRound = 1;
+        config.showLanes = document.getElementById('pShowLanes').checked;
         if(config.groupMode === 'size') {
             if(config.groupSize < 1) config.groupSize = 1;
             config.groups = Math.max(1, Math.ceil(pilots.length / config.groupSize));
@@ -1306,7 +1371,8 @@
                     let dnfClass = config.useDnf ? "" : "dnf-hidden";
                     let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                     let displayPos = isRestore ? (idx+1) : "-";
-                    li.innerHTML = buildHeatItemHtml(p.name, displayPos, laneLabelForPosition(idx), 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${listGlobalIndex}`);
+                    let laneLabel = config.showLanes ? laneLabelForPosition(idx) : '';
+                    li.innerHTML = buildHeatItemHtml(p.name, displayPos, laneLabel, 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${listGlobalIndex}`);
                     li.addEventListener('dragstart', () => li.classList.add('dragging'));
                     li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); saveCurrentHeatState(); });
                     list.appendChild(li);
