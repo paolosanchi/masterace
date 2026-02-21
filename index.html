@@ -596,7 +596,8 @@
         scoringSystem: 'std', customPoints: '', 
         bestLapEnabled: true, bestLapPoints: 1,
         groupMode: 'groups', groupSize: 5,
-        heatsPerRound: 3
+        heatsPerRound: 3,
+        liveHeatState: null
     };
     const TOURNAMENT_INDEX_KEY = 'rc_tournaments';
     const ACTIVE_TOURNAMENT_KEY = 'rc_active_tournament';
@@ -936,6 +937,72 @@
         return `Lane ${((posIndex % 3) + 1)}`;
     }
 
+    function buildHeatItemHtml(name, displayPos, laneLabel, pilotMetaText, blClass, dnfClass, radioGroupName) {
+        return `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabel}</span><span class="pilot-meta">${pilotMetaText}</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="${radioGroupName}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this); saveCurrentHeatState()"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf" onchange="saveCurrentHeatState()"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+    }
+
+    function saveCurrentHeatState() {
+        if(config.state !== 'racing') return;
+        let lists = document.querySelectorAll('.sortable-list');
+        if(!lists.length) return;
+
+        config.liveHeatState = {
+            round: config.round,
+            lists: Array.from(lists).map(list =>
+                Array.from(list.children).map(li => {
+                    let laneMeta = li.querySelector('.lane-meta');
+                    let pilotMeta = li.querySelector('.pilot-meta');
+                    return {
+                        name: li.getAttribute('data-name'),
+                        dnf: li.querySelector('.chk-dnf') ? li.querySelector('.chk-dnf').checked : false,
+                        bestLap: li.querySelector('.rad-best-lap') ? li.querySelector('.rad-best-lap').checked : false,
+                        lane: laneMeta ? laneMeta.textContent : '',
+                        meta: pilotMeta ? pilotMeta.textContent : 'BL -- · AVG -- · TOT --'
+                    };
+                })
+            )
+        };
+        saveToMemory();
+    }
+
+    function applySavedHeatStateIfAny() {
+        if(!config.liveHeatState || config.liveHeatState.round !== config.round) return;
+        if(!Array.isArray(config.liveHeatState.lists)) return;
+
+        let lists = document.querySelectorAll('.sortable-list');
+        if(config.liveHeatState.lists.length !== lists.length) return;
+
+        config.liveHeatState.lists.forEach((savedList, listIdx) => {
+            let list = lists[listIdx];
+            let existingItems = Array.from(list.children);
+            let byName = {};
+            existingItems.forEach(li => { byName[li.getAttribute('data-name')] = li; });
+
+            list.innerHTML = '';
+
+            savedList.forEach(savedItem => {
+                let li = byName[savedItem.name];
+                if(!li) return;
+                let dnfBox = li.querySelector('.chk-dnf');
+                let radio = li.querySelector('.rad-best-lap');
+                let laneMeta = li.querySelector('.lane-meta');
+                let pilotMeta = li.querySelector('.pilot-meta');
+                if(dnfBox) dnfBox.checked = !!savedItem.dnf;
+                if(radio) radio.checked = !!savedItem.bestLap;
+                if(laneMeta && savedItem.lane) laneMeta.textContent = savedItem.lane;
+                if(pilotMeta && savedItem.meta) pilotMeta.textContent = savedItem.meta;
+                list.appendChild(li);
+                delete byName[savedItem.name];
+            });
+
+            Object.values(byName).forEach(li => list.appendChild(li));
+            updateBadges(list);
+
+            let checked = list.querySelector('.rad-best-lap:checked');
+            if(checked) handleBestLapChange(checked);
+        });
+    }
+
     /* CLOUD SYNC */
     async function fetchLastSessionData() {
         if(!dbConfig.url || !dbConfig.key) { alert("Configura prima il database!"); return null; }
@@ -1046,6 +1113,7 @@
         matchedItems.forEach(li => list.appendChild(li));
         unmatchedItems.forEach(li => list.appendChild(li));
         updateBadges(list);
+        saveCurrentHeatState();
         alert("Batteria aggiornata!");
     }
 
@@ -1083,11 +1151,12 @@
                          let dnfClass = config.useDnf ? "" : "dnf-hidden";
                          let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                          let currentCount = targetList.children.length + 1;
-                         li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${currentCount}</span><div class="pilot-info"><span class="pilot-name">${name}</span><span class="lane-meta">${laneLabelForPosition(currentCount - 1)}</span><span class="pilot-meta">BL -- · AVG -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${heatIndex}" class="rad-best-lap" value="${name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                         li.innerHTML = buildHeatItemHtml(name, currentCount, laneLabelForPosition(currentCount - 1), 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${heatIndex}`);
                          li.addEventListener('dragstart', () => li.classList.add('dragging'));
-                         li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); });
+                         li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(targetList); saveCurrentHeatState(); });
                          targetList.appendChild(li);
                      });
+                     saveCurrentHeatState();
                      alert("Pilota aggiunto alle heat del gruppo corrente!");
                  }
                  updateRank();
@@ -1237,9 +1306,9 @@
                     let dnfClass = config.useDnf ? "" : "dnf-hidden";
                     let blClass = config.bestLapEnabled ? "" : "visibility:hidden;";
                     let displayPos = isRestore ? (idx+1) : "-";
-                    li.innerHTML = `<div style="display:flex; align-items:center; width:100%"><span class="pos-badge">${displayPos}</span><div class="pilot-info"><span class="pilot-name">${p.name}</span><span class="lane-meta">${laneLabelForPosition(idx)}</span><span class="pilot-meta">BL -- · AVG -- · TOT --</span></div><div class="controls"><div class="best-lap-wrapper" style="${blClass}"><input type="radio" name="fast-${listGlobalIndex}" class="rad-best-lap" value="${p.name}" onchange="handleBestLapChange(this)"></div><label class="dnf-label ${dnfClass}"><input type="checkbox" class="chk-dnf"><span>X</span></label><span class="drag-handle" style="margin-left:15px; cursor:grab; color:#555;">☰</span></div></div>`;
+                    li.innerHTML = buildHeatItemHtml(p.name, displayPos, laneLabelForPosition(idx), 'BL -- · AVG -- · TOT --', blClass, dnfClass, `fast-${listGlobalIndex}`);
                     li.addEventListener('dragstart', () => li.classList.add('dragging'));
-                    li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); });
+                    li.addEventListener('dragend', () => { li.classList.remove('dragging'); updateBadges(list); saveCurrentHeatState(); });
                     list.appendChild(li);
                 });
                 list.addEventListener('dragover', e => { e.preventDefault(); const afterElement = getDragAfterElement(list, e.clientY); const dragging = document.querySelector('.dragging'); if (afterElement == null) list.appendChild(dragging); else list.insertBefore(dragging, afterElement); });
@@ -1247,6 +1316,8 @@
                 listGlobalIndex++;
             }
         }
+        if(isRestore) applySavedHeatStateIfAny();
+        else saveCurrentHeatState();
         document.getElementById('view-race').classList.remove('hidden');
     }
 
@@ -1345,6 +1416,7 @@
         });
 
         updateRank();
+        config.liveHeatState = null;
         if(config.round < config.total) { config.round++; generateRound(false); saveToMemory(); }
         else { config.state = 'finished'; saveToMemory(); document.getElementById('view-race').classList.add('hidden'); document.getElementById('view-rank').classList.add('hidden'); document.getElementById('view-end').classList.remove('hidden'); }
     }
