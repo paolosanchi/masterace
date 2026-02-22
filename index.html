@@ -219,6 +219,7 @@
         .qualy-heat-pos { width: 28px; color: #666; font-family: 'Russo One'; }
         .qualy-heat-name { flex: 1; text-align: left; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
         .qualy-heat-input { width: 260px; max-width: 52vw; }
+        .qualy-dnf-cell { width: 65px; text-align: center; }
 
         /* Podio style */
         .rank-table tr:nth-child(1) td { background: linear-gradient(90deg, rgba(255, 215, 0, 0.15), #1a1a1a); border-left-color: var(--gold); color: var(--gold); }
@@ -1187,6 +1188,7 @@
         let parsedData = [];
         let minTime = 99999999;
         let fastestPilotName = (session.timing.bestLap && session.timing.bestLap.driver && session.timing.bestLap.driver.name) ? session.timing.bestLap.driver.name : "";
+        const useTotalForQualy = (context === 'qualy' || String(context).startsWith('qualyheat-'));
 
         for (const carId in results) {
             const entry = results[carId];
@@ -1195,8 +1197,16 @@
             const avgLap = entry.avgLapTime || 0;
             const totalTime = entry.totalTime || 0;
             const rank = entry.raceRanking ? entry.raceRanking.position : 99;
+            const qualyTime = (totalTime > 0) ? totalTime : bestLap;
             if(!fastestPilotName && bestLap < minTime) { minTime = bestLap; fastestPilotName = name; }
-            parsedData.push({ name: name, time: bestLap, rank: rank, bestLapMs: bestLap, avgLapMs: avgLap, totalMs: totalTime });
+            parsedData.push({
+                name: name,
+                time: useTotalForQualy ? qualyTime : bestLap,
+                rank: rank,
+                bestLapMs: bestLap,
+                avgLapMs: avgLap,
+                totalMs: totalTime
+            });
         }
         parsedData.sort((a,b) => a.rank - b.rank);
 
@@ -1211,7 +1221,7 @@
         data.forEach(entry => {
             let existing = pilots.find(p => p.name.toLowerCase() === entry.name.toLowerCase());
             if(!existing) { 
-                pilots.push({ name: entry.name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] }); 
+                pilots.push({ name: entry.name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], qualyDnf: false, history: [] }); 
                 addedCount++; 
             }
         });
@@ -1238,6 +1248,10 @@
 
     function refreshOfficialQualyScore(pilot) {
         if(!pilot) return;
+        if(pilot.qualyDnf) {
+            pilot.qualy = 999999;
+            return;
+        }
         if(!Array.isArray(pilot.qualyAttempts)) pilot.qualyAttempts = [];
         let sorted = [...pilot.qualyAttempts].sort((a,b) => a - b);
         pilot.qualy = sorted.length >= 2 ? parseFloat((sorted[0] + sorted[1]).toFixed(3)) : 999999;
@@ -1249,6 +1263,7 @@
         data.forEach(entry => {
             let p = pilots.find(p => p.name.toLowerCase() === entry.name.toLowerCase());
             if(!p) return;
+            if(p.qualyDnf) return;
             if(isOfficial) {
                 let attempt = normalizeQualySeconds(entry.time);
                 if(attempt !== null) {
@@ -1284,6 +1299,7 @@
             if(!targetNames.has(key)) return;
             const p = pilots.find(x => x.name.toLowerCase() === key);
             if(!p) return;
+            if(p.qualyDnf) return;
             const attempt = normalizeQualySeconds(entry.time);
             if(attempt === null) return;
             if(!Array.isArray(p.qualyAttempts)) p.qualyAttempts = [];
@@ -1340,9 +1356,10 @@
                 const pilot = pilots.find(p => p.name === pilotName);
                 const attemptsText = pilot && Array.isArray(pilot.qualyAttempts) ? pilot.qualyAttempts.join(', ') : '';
                 const laneForNextRun = ((laneIdx + completedRuns) % 3) + 1;
+                const checked = pilot?.qualyDnf ? 'checked' : '';
                 const row = document.createElement('div');
                 row.className = 'qualy-heat-row';
-                row.innerHTML = `<span class="qualy-heat-pos">L${laneForNextRun}</span><span class="qualy-heat-name">${pilotName}</span><input type="text" class="qualy-input qualy-heat-input" value="${attemptsText}" placeholder="Max 4 run: 10.123, 10.045, 9.998, 9.990" onchange="updateQualyAttempts('${pilotName}', this.value)">`;
+                row.innerHTML = `<span class="qualy-heat-pos">L${laneForNextRun}</span><span class="qualy-heat-name">${pilotName}</span><input type="text" class="qualy-input qualy-heat-input" value="${attemptsText}" placeholder="Max 4 run: 10.123, 10.045, 9.998, 9.990" onchange="updateQualyAttempts('${pilotName}', this.value)"><label class="dnf-label" style="width:auto; margin-left:8px;"><input type="checkbox" ${checked} onchange="setQualyDnf('${pilotName}', this.checked)"><span>DNF</span></label>`;
                 heatDiv.appendChild(row);
             });
 
@@ -1387,7 +1404,7 @@
         let inp = document.getElementById('pName'); let name = inp.value.trim();
         if(!name) return;
         if(pilots.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert("Esiste già!");
-        pilots.push({ name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] });
+        pilots.push({ name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], qualyDnf: false, history: [] });
         inp.value = ""; renderPilotList(); updateSuggestedGroups(); saveToMemory();
     }
     
@@ -1395,7 +1412,7 @@
         let name = prompt("Inserisci il nome del nuovo pilota:");
         if(name) {
              if(pilots.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert("Esiste già!");
-             let newPilot = { name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], history: [] };
+             let newPilot = { name: name, points: 0, tieBreak: false, qualy: 999999, qualyAttempts: [], qualyDnf: false, history: [] };
              pilots.push(newPilot);
              if(config.state === 'qualy' && config.top6FinalsMode) config.qualyHeatGroups = null;
              saveToMemory();
@@ -1518,14 +1535,15 @@
         const headRow = document.querySelector('#tbl-qualy thead tr');
         if(headRow) {
             headRow.innerHTML = isOfficial
-                ? '<th>Pos</th><th>Pilota</th><th>TENTATIVI (SEC)</th><th>SOMMA BEST 2</th>'
-                : '<th>Pos</th><th>Pilota</th><th>Tempo (Sec)</th>';
+                ? '<th>Pos</th><th>Pilota</th><th>TENTATIVI (SEC)</th><th>SOMMA BEST 2</th><th>DNF</th>'
+                : '<th>Pos</th><th>Pilota</th><th>Tempo (Sec)</th><th>DNF</th>';
         }
 
         if(qualyHeatContainer) qualyHeatContainer.classList.toggle('hidden', !isOfficial);
         if(qualyTable) qualyTable.classList.remove('hidden');
 
         pilots.forEach(p => {
+            if(p.qualyDnf === undefined) p.qualyDnf = false;
             if(isOfficial) {
                 if(!Array.isArray(p.qualyAttempts) || p.qualyAttempts.length === 0) {
                     let fallback = normalizeQualySeconds(p.qualy);
@@ -1535,6 +1553,7 @@
                 }
                 refreshOfficialQualyScore(p);
             } else {
+                if(p.qualyDnf) p.qualy = 999999;
                 if(p.qualy > 1000 && p.qualy !== 999999) p.qualy = p.qualy / 1000;
             }
         });
@@ -1545,19 +1564,32 @@
         pilots.forEach((p, i) => {
             if(isOfficial) {
                 let attemptsText = Array.isArray(p.qualyAttempts) ? p.qualyAttempts.join(', ') : '';
-                let scoreText = p.qualy === 999999 ? '-- (min 2 tempi)' : p.qualy.toFixed(3);
-                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td>${attemptsText || '--'}</td><td>${scoreText}</td></tr>`;
+                let scoreText = p.qualyDnf ? 'DNF' : (p.qualy === 999999 ? '-- (min 2 tempi)' : p.qualy.toFixed(3));
+                let checked = p.qualyDnf ? 'checked' : '';
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td>${attemptsText || '--'}</td><td>${scoreText}</td><td class="qualy-dnf-cell"><input type="checkbox" ${checked} onchange="setQualyDnf('${p.name}', this.checked)"></td></tr>`;
             } else {
                 let val = p.qualy === 999999 ? "" : p.qualy;
-                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="number" step="0.001" class="qualy-input" value="${val}" placeholder="--" onchange="updateQualyTime('${p.name}', this.value)"></td></tr>`;
+                let checked = p.qualyDnf ? 'checked' : '';
+                tbody.innerHTML += `<tr><td>${i+1}</td><td>${p.name}</td><td><input type="number" step="0.001" class="qualy-input" value="${val}" placeholder="--" onchange="updateQualyTime('${p.name}', this.value)"></td><td class="qualy-dnf-cell"><input type="checkbox" ${checked} onchange="setQualyDnf('${p.name}', this.checked)"></td></tr>`;
             }
         });
+    }
+
+    function setQualyDnf(pilotName, isDnf) {
+        let p = pilots.find(x => x.name === pilotName);
+        if(!p) return;
+        p.qualyDnf = !!isDnf;
+        if(p.qualyDnf) p.qualy = 999999;
+        else refreshOfficialQualyScore(p);
+        renderQualyList();
+        saveToMemory();
     }
 
     function updateQualyAttempts(pilotName, value) {
         let p = pilots.find(x => x.name === pilotName);
         if(!p) return;
         p.qualyAttempts = parseQualyAttempts(value);
+        p.qualyDnf = false;
         refreshOfficialQualyScore(p);
         renderQualyList();
         saveToMemory();
@@ -1565,7 +1597,7 @@
 
     function updateQualyTime(pilotName, value) {
         let p = pilots.find(x => x.name === pilotName);
-        if(p) { let f = parseFloat(value); p.qualy = isNaN(f) ? 999999 : f; saveToMemory(); }
+        if(p) { let f = parseFloat(value); p.qualy = isNaN(f) ? 999999 : f; p.qualyDnf = false; saveToMemory(); }
     }
 
     function confirmQualyAndStart() {
@@ -1594,7 +1626,7 @@
         });
 
         let qualified = [...pilots]
-            .filter(p => Array.isArray(p.qualyAttempts) && p.qualyAttempts.length >= 2 && p.qualy !== 999999)
+            .filter(p => !p.qualyDnf && Array.isArray(p.qualyAttempts) && p.qualyAttempts.length >= 2 && p.qualy !== 999999)
             .sort((a,b) => a.qualy - b.qualy);
 
         if(qualified.length < 6) {
@@ -1609,6 +1641,7 @@
             tieBreak: false,
             qualy: p.qualy,
             qualyAttempts: [...p.qualyAttempts],
+            qualyDnf: false,
             history: []
         }));
 
